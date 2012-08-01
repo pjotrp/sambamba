@@ -36,7 +36,7 @@ public {
     /// Validators for record fields
     __gshared ReadValidationError[string] invalidField;
 
-    /// Validators for predefined tags
+    /// Validators for individual predefined tags
     __gshared TagValidationError[string] invalidTag;
 
     /// Validators for CIGAR
@@ -48,14 +48,22 @@ public {
     /// Array of validators for CIGAR
     __gshared ReadValidationError[] cigarValidationErrors; // populated in CigarValidationError constructor
 
+    /// Validators for tags (overall).
+    __gshared ReadValidationError invalidTagsForEmptyRead,
+                                  invalidTagsDuplicateTagNames;
+
+    /// Array of validators for tags (overall)
+    __gshared ReadValidationError[] invalidTagsValidationErrors;
+
     /// Array of all validators for reads
     __gshared ReadValidationError[] readValidationErrors;
 
-    /// General validators for tags
+    /// General validators for individual tags
     __gshared TagValidationError tagInvalidCharacterValue,
                                  tagInvalidStringValue,
                                  tagInvalidHexStringValue;
 
+    /// Array of general validators for individual tags
     __gshared TagValidationError[] generalTagValidationErrors;
 
     /// General tag validators (see above) + predefined tag validators
@@ -232,6 +240,86 @@ static this() {
                 return !read.is_unmapped && read.cigar.length == 0;
             });
 
+    // ---------------------------------- tags (overall) -----------------------
+
+    class TagsValidationError : ReadValidationError {
+        this(string description, ValidateFunc is_invalid) {
+            this.description = "invalid tag data: " ~ description;
+            _is_invalid = is_invalid;
+
+            invalidTagsValidationErrors ~= this;
+        }
+
+        private ValidateFunc _is_invalid;
+
+        override string validate(const SamHeader header, Alignment read) @trusted {
+            return _is_invalid(header, read) ? description : null;
+        }
+    }
+
+    invalidTagsForEmptyRead = new TagsValidationError(
+            "empty read must have one of [FZ], [CS], [CQ] flags set",
+            function (const SamHeader header, Alignment read) {
+                if (read.sequence_length != 0) 
+                    return false;
+                foreach (k, _; read) {
+                    switch (k) {
+                        case "FZ":
+                        case "CS":
+                        case "CQ":
+                            return false;
+                        default:
+                            break;
+                    }
+                }
+                return true;
+            });
+
+    invalidTagsDuplicateTagNames = new TagsValidationError(
+            "duplicate tag names",
+            function (const SamHeader header, Alignment read) {
+                bool all_distinct = true;
+
+                // Optimize for small number of tags
+                ushort[256] keys = void;
+                size_t i = 0;
+
+                // Check each tag in turn.
+                foreach (k, v; read) {
+                    if (i < keys.length) {
+                        keys[i] = *cast(ushort*)(k.ptr);
+
+                        if (all_distinct) {
+                            for (size_t j = 0; j < i; ++j) {
+                                if (keys[i] == keys[j]) {
+                                    all_distinct = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        i += 1;
+                    } else {
+                        if (all_distinct) {
+                            // must be exactly one
+                            int found = 0;
+                            foreach (k2, v2; read) {
+                                if (*cast(ushort*)(k2.ptr) == *cast(ushort*)(k.ptr)) {
+                                    if (found == 1) {
+                                        all_distinct = false;
+                                        break;
+                                    } else {
+                                        ++found;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return !all_distinct;
+            });
+
     // -------------------------------- flags ----------------------------------
 
     flag.proper_pair.isInvalidIf!q{
@@ -302,8 +390,8 @@ static this() {
     };
 
     field.mapping_quality.isInvalidIf!q{
-        if (is_unmapped && mapping_quality != 255)
-            return "mapping quality must be 255 for unmapped read";
+        if (is_unmapped && mapping_quality != 0)
+            return "mapping quality must be 0 for unmapped read";
     };
 
     field.template_length.isInvalidIf!q{
@@ -322,7 +410,8 @@ static this() {
             return "read is unpaired but mate reference ID != -1";
     };
 
-    readValidationErrors = invalidFlag.values ~ invalidField.values ~ cigarValidationErrors;
+    readValidationErrors = invalidFlag.values ~ invalidField.values ~ 
+                           cigarValidationErrors ~ invalidTagsValidationErrors;
 
     // --------------------------------- tags ----------------------------------
     
