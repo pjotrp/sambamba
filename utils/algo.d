@@ -21,7 +21,7 @@ bool allDistinct(Range)(Range r) {
     return sz == eq;
 }
 
-private import std.algorithm;
+public import std.algorithm;
 static if (!__traits(compiles, any!"a == 2"([1,2,3]))) {
     /** GDC uses older phobos library, so let's define 'all' and 'any' functions */
 

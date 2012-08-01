@@ -8,6 +8,7 @@ import std.regex;
 import std.algorithm;
 import std.conv;
 import alignment;
+import samheader;
 import tagvalue;
 import validation.alignment;
 
@@ -25,10 +26,16 @@ final class NullFilter : Filter {
 
 /// Validating filter
 final class ValidAlignmentFilter : Filter {
-    
-    bool accepts(ref Alignment a) const {
-        return isValid(a);
+   
+    this(const SamHeader header) {
+        _header = header;
     }
+
+    bool accepts(ref Alignment a) const {
+        return isValid(_header, a);
+    }
+
+    private const SamHeader _header;
 }
 
 /// Intersection of two filters

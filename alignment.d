@@ -18,6 +18,8 @@ version(unittest) {
     import utils.tagstoragebuilder;
 }
 
+@trusted:
+
 /**
   Represents single CIGAR operation
  */

@@ -128,7 +128,7 @@ alias TypeTuple!(TypeId!(char,     0b001_00_1_00),
                  TypeId!(typeof(null), 0b0000_0010))
     TypeIdMap;
 
-private immutable hexStringTag = 0b001_00_1_11;
+immutable hexStringTag = 0b001_00_1_11;
 
 private template GetType(U) {
     alias U.Type GetType;

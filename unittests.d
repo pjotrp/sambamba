@@ -203,10 +203,10 @@ unittest {
     foreach (read; bf.alignments) {
         auto line = toSam(read, bf.reference_sequences);
         auto read2 = parseAlignmentLine(line, bf.header);
-        if (read != read2 && isValid(read)) {
+        if (read != read2 && isValid(bf.header, read)) {
             writeln(read.read_name);
         }
-        assert(read == read2 || !isValid(read));
+        assert(read == read2 || !isValid(bf.header, read));
     }
 
 }

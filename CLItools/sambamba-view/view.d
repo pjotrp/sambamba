@@ -147,7 +147,7 @@ int sambambaMain(T)(T _bam, string[] args)
     Filter filter = new NullFilter();
 
     if (skip_invalid_alignments) {
-        filter = new AndFilter(filter, new ValidAlignmentFilter());
+        filter = new AndFilter(filter, new ValidAlignmentFilter(bam.header));
     }
 
     if (query !is null) {
