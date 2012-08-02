@@ -12,9 +12,9 @@ import utils.algo;
 abstract class AbstractValidationError(T)
     if (is(T == Alignment) || is(T == Value))
 {
-    static string description; /// Description of the validation error.
-    static int severity; /// Error severity (default is 0).
-    static int priority; /// Error priority (default is 0).
+    string description; /// Description of the validation error.
+    int severity; /// Error severity (default is 0).
+    int priority; /// Error priority (default is 0).
 
     static if (is(T == Alignment)) {
         // NOTE: I don't have any f*cking idea why the bloody compiler forces 
@@ -76,7 +76,7 @@ private {
         if (is(T == Alignment) || is(T == Value))
     {
         template AbstractValidationSettings(string id) {
-            enum description = idtype ~ "'" ~ id ~ "' is invalid";
+            enum description = idtype ~ " '" ~ id ~ "' is invalid";
 
             alias T Type;
 
@@ -150,7 +150,7 @@ private {
 
                     class Validator : AbstractValidationError!T {
 
-                        static this() {
+                        this() {
                             description = ValidationSettings!id.description;
                         }
 
@@ -196,8 +196,8 @@ static this() {
     // -------------------------------- CIGAR ----------------------------------
 
     class CigarValidationError : ReadValidationError {
-        this(string description, ValidateFunc is_invalid) {
-            this.description = "field 'cigar' is invalid: " ~ description;
+        this(string descr, ValidateFunc is_invalid) {
+            this.description = "field 'cigar' is invalid: " ~ descr;
             _is_invalid = is_invalid;
 
             cigarValidationErrors ~= this;
@@ -228,6 +228,7 @@ static this() {
             "sum of lengths of M/I/=/S/X operations is not equal to sequence length",
             function (const SamHeader header, Alignment read) {
                 return (read.sequence_length > 0 &&
+                        read.cigar.length > 0 &&
                         read.sequence_length != reduce!`a + b`(0, 
                                                   map!`a.length`(
                                                     filter!`canFind("MIS=X", a.operation)`(
@@ -243,8 +244,8 @@ static this() {
     // ---------------------------------- tags (overall) -----------------------
 
     class TagsValidationError : ReadValidationError {
-        this(string description, ValidateFunc is_invalid) {
-            this.description = "invalid tag data: " ~ description;
+        this(string descr, ValidateFunc is_invalid) {
+            this.description = "invalid tag data: " ~ descr;
             _is_invalid = is_invalid;
 
             invalidTagsValidationErrors ~= this;
@@ -522,10 +523,10 @@ static this() {
     tag.UQ.mustBe!int;
 
     class GeneralTagValidationError : TagValidationError {
-        this(string description, 
+        this(string descr, 
              bool function(const SamHeader, Alignment, Value) is_invalid)
         {
-            this.description = description;
+            this.description = descr;
             _is_invalid = is_invalid;
 
             generalTagValidationErrors ~= this;
