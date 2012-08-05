@@ -7,6 +7,7 @@ import tagvalue;
 import std.math;
 import std.conv;
 import std.ascii;
+import std.algorithm;
 import utils.algo;
 
 abstract class AbstractValidationError(T)
@@ -130,6 +131,7 @@ private {
                                     if (!v.is_string)
                                         return "expected string value";
                                     auto qual = cast(string)v;
+                                    // TODO: PCMPESTRI
                                     if (qual != "*" && !all!"a >= '!' && a <= '~'"(qual))
                                         return "quality string contains invalid characters";
                                 } else {
@@ -161,7 +163,7 @@ private {
                             }
                         } else static if (is(T == Value)) {
                             override string validate(const SamHeader header, Alignment read, T value) @trusted {
-                                if (expected_type !is null && value.tag != expected_tag) 
+                                if (expected_type != null && value.tag != expected_tag) 
                                     return "expected " ~ expected_type;
 
                                 with (value) { mixin(checker); }
@@ -214,14 +216,27 @@ static this() {
             "internal hard clipping",
             function (const SamHeader header, Alignment read) {
                 return (read.cigar.length > 2 && 
-                        any!"a.operation == 'H'"(read.cigar[1..$-1]));
+                        any!"a.operation == 'H'"(read.cigar[1 .. $ - 1]));
             });
 
     cigarInternalSoftClipping = new CigarValidationError(
             "internal soft clipping",
             function (const SamHeader header, Alignment read) {
-                return (read.cigar.length > 2 && 
-                        any!"a.operation == 'H'"(read.cigar[1..$-1]));
+                if (read.cigar.length <= 2) 
+                    return false;
+                
+                auto cigar = read.cigar;
+
+                /// strip H operations from ends
+                if (cigar[0].operation == 'H') {
+                    cigar = cigar[1..$];
+                }   
+
+                if (cigar[$-1].operation == 'H') {
+                    cigar = cigar[0..$-1];
+                }   
+
+                return any!"a.operation == 'S'"(cigar[1 .. $ - 1]);
             });
 
     cigarInconsistentLength = new CigarValidationError(
@@ -362,13 +377,8 @@ static this() {
             return "read name must be nonempty";
         if (read_name.length > 255)
             return "read name length must be <= 255";
-        
-        foreach (char c; read_name) 
-        {
-            if ((c < '!') || (c > '~') || (c == '@')) {
-                return "read name contains invalid characters";
-            }
-        }
+        if (any!"a < '!' || a > '~' || a == '@'"(read_name))
+            return "read name contains invalid characters";
     };
 
     field.position.isInvalidIf!q{
@@ -377,15 +387,30 @@ static this() {
     };
 
     field.phred_base_quality.isInvalidIf!q{
-        if (!all!"a == 0xFF"(phred_base_quality) &&
-            !all!"0 <= a && a <= 93"(phred_base_quality))
-            return "quality data contains invalid elements";
+        // TODO: PCMPESTRI
+        bool allFF = true;
+        bool checkFF = false;
+        foreach (ubyte b; phred_base_quality) {
+            if (b != 0xFF) {
+                allFF = false;
+                if (checkFF)
+                    return "quality data contains invalid elements";
+            }
+            if (!checkFF && b > 93) {
+                if (b == 0xFF && allFF) {
+                    // check that all remaining elements are 0xFF
+                    checkFF = true;
+                } else {
+                    return "quality data contains invalid elements";
+                }
+            }
+        }
     };
 
     field.cigar.isInvalidIf!q{
         foreach (e; cigarValidationErrors) {
             auto res = e.validate(header, read);
-            if (res !is null) 
+            if (res != null) 
                 return res;
         }
     };
@@ -559,9 +584,8 @@ static this() {
                 auto s = cast(string)v;
                 if (s.length == 0)
                     return true;
-                if (!all!"a >= ' ' && a <= '~'"(s))
-                    return true;
-                return false;
+                // TODO: PCMPESTRI
+                return !all!"a >= ' ' && a <= '~'"(s);
             });
 
     tagInvalidHexStringValue = new GeneralTagValidationError(
@@ -572,9 +596,8 @@ static this() {
                 auto s = cast(string)v;
                 if (s.length == 0)
                     return true;
-                if (!(all!isHexDigit(s)))
-                    return true;
-                return false;
+                // TODO: PCMPESTRI
+                return !all!isHexDigit(s);
             });
 
     tagValidationErrors = generalTagValidationErrors ~ invalidTag.values;
@@ -585,21 +608,21 @@ static this() {
 string validate(const SamHeader header, Alignment read) {
     foreach (e; readValidationErrors) {
         auto msg = e.validate(header, read);
-        if (msg !is null)
+        if (msg != null)
             return msg;
     }
 
     foreach (k, v; read) {
         foreach (e; generalTagValidationErrors) {
             auto msg = e.validate(header, read, v);
-            if (msg !is null)
+            if (msg != null)
                 return "[" ~ k ~ "] tag is invalid: " ~ msg;
         }
 
         auto e = k in invalidTag;
-        if (e !is null) {
+        if (e != null) {
             auto msg = e.validate(header, read, v);
-            if (msg !is null)
+            if (msg != null)
                 return "[" ~ k ~ "] tag is invalid: " ~ msg;
         }
     }
@@ -610,18 +633,18 @@ string validate(const SamHeader header, Alignment read) {
 /// Returns whether a ${D read) is valid or not.
 bool isValid(const SamHeader header, Alignment read) {
     foreach (e; readValidationErrors) {
-        if (e.validate(header, read) !is null)
+        if (e.validate(header, read) != null)
             return false;
     }
 
     foreach (k, v; read) {
         foreach (e; generalTagValidationErrors) {
-            if (e.validate(header, read, v) !is null)
+            if (e.validate(header, read, v) != null)
                 return false;
         }
 
         auto e = k in invalidTag;
-        if (e !is null && (e.validate(header, read, v) !is null))
+        if (e != null && (e.validate(header, read, v) != null))
             return false;
     }
 

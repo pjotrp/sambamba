@@ -9,7 +9,7 @@ void main(string[] args) {
 
     foreach (read; bam.alignments) {
         auto msg = validate(bam.header, read);
-        if (msg !is null) {
+        if (msg != null) {
             serialize(read, bam.reference_sequences, stdout);
             writeln();
             writeln(msg);

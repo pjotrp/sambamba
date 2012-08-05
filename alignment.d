@@ -9,6 +9,7 @@ import std.conv;
 import std.exception;
 import std.stream;
 import std.system;
+import std.c.string;
 
 import utils.array;
 import utils.value;
@@ -751,9 +752,10 @@ mixin template TagStorage() {
         char type = cast(char)tags_chunk[offset++];
         if (type == 'Z' || type == 'H') {
             auto begin = offset;
-            while (tags_chunk[offset++] != 0) {}
+            offset += strlen(cast(immutable(char)*)tags_chunk.ptr + offset);
             // return string with stripped '\0'
-            auto v = Value(cast(string)tags_chunk[begin .. offset - 1]);
+            auto v = Value(cast(string)tags_chunk[begin .. offset]);
+            ++offset; // skip terminating '\0'
             if (type == 'H') {
                 v.setHexadecimalFlag();
             }
