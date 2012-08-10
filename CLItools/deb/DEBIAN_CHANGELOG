@@ -1,3 +1,9 @@
+sambamba (0.2.2) unstable; urgency=low
+
+  * fix bug in BAM output
+
+ -- Artem Tarasov <lomereiter@gmail.com>  Fri, 10 Aug 2012 09:52:39 +0400
+
 sambamba (0.2.1) unstable; urgency=low
 
   * Initial release
