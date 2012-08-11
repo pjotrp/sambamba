@@ -22,6 +22,10 @@ module samfile;
 import std.stdio;
 import std.array;
 import std.string;
+import std.algorithm;
+import std.parallelism;
+
+extern(C) size_t lseek(int fd, size_t offset, int whence);
 
 import alignment;
 import samheader;
@@ -30,8 +34,12 @@ import sam.recordparser;
 
 struct SamFile {
 
-    this(string filename) {
+    this(string filename, TaskPool task_pool=taskPool) {
+        _file = File(filename);
+        _filename = filename;
+        _seekable = lseek(_file.fileno, 0, 0) != ~0;
         _initializeStream(filename);
+        _task_pool = task_pool;
     }
 
     SamHeader header() @property {
@@ -42,70 +50,76 @@ struct SamFile {
         return _reference_sequences;
     }
 
+    private alias File.ByLine!(char, char) LineRange;
+
+    /// Alignments in SAM file. Not thread-safe.
+    /// If file is seekable, starts from the beginning,
+    /// otherwise range starts with the alignment first
+    /// in the stream.
     auto alignments() @property {
-        struct Result {
-            this(File file, ref SamHeader header) {
-                _file = file;
-                _header = header;
-                _line_range = file.byLine();
 
-                _build_storage = new AlignmentBuildStorage();
-            }
-            
-            bool empty() @property {
-                return _line_range.empty;
-            }
-            
-            void popFront() @property {
-                _line_range.popFront();
-            }
-
-            Alignment front() @property {
-                return parseAlignmentLine(cast(string)_line_range.front, _header,
-                                          _build_storage);
-            }
-
-            private {
-                alias File.ByLine!(char, char) LineRange;
-                LineRange _line_range;
-                SamHeader _header;
-
-                AlignmentBuildStorage _build_storage;
-            }
-            
-            private:
+        LineRange _lines;
+        if (_seekable) {
             File _file;
-            char[] buffer;
+            if (_filename is null) {
+                this._file.seek(0);
+                _file = this._file;
+            } else {
+                _file = File(_filename);
+            }
+            _lines = _file.byLine();
+            auto dummy = _lines.front;
+            for (long i = 0; i < _lines_to_skip && !_lines.empty; i++) {
+                _lines.popFront();
+            }
+        } else {
+            _lines = this._lines;
         }
-        return Result(_file, _header);
+
+        auto lines = map!"a.idup"(_lines);
+
+        version (serial) {
+
+            auto build_storage = new AlignmentBuildStorage();
+            Alignment parse(string s) {
+                return parseAlignmentLine(s, _header, build_storage);
+            }
+
+            return map!parse(lines);
+
+        } else {
+
+            static __gshared SamHeader header;
+            header = _header;
+            return _task_pool.map!((string s) { return parseAlignmentLine(s, header); })(lines, 1024);
+
+        }
     }
 private:
 
     File _file;
-
-    ulong _header_end_offset;
+    string _filename;
+    bool _seekable;
+    long _lines_to_skip;
+    LineRange _lines;
+    TaskPool _task_pool;
 
     SamHeader _header;
     ReferenceSequenceInfo[] _reference_sequences;
 
     void _initializeStream(string filename) {
-        _file = File(filename); 
-
-        char[] _buffer;
-
         auto header = appender!(char[])(); 
-        while (_file.isOpen && !_file.eof()) {
-            _header_end_offset = _file.tell();
-            auto read = _file.readln(_buffer);
-            auto line = _buffer[0 .. read];
 
+        _lines = _file.byLine();
+
+        while (!_lines.empty) {
+            auto line = _lines.front;
             if (line.length > 0 && line[0] == '@') {
                 header.put(line);
+                _lines_to_skip += 1;
+                _lines.popFront();
             } else {
-                if (line.length > 0) {
-                    _file.seek(_header_end_offset);
-                    break;
-                }
+                break;
             }
         }
 
