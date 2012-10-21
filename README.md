@@ -90,7 +90,8 @@ The speed of D code compiled with GDC compiler is about the same as speed of C c
 gcc and gdc share the same optimization backend. 
 The code compiled with DMD runs slower, sometimes by a factor of 2, but the
 advantages you get with it are more cool language features 
-(like uniform function call syntax introduced in version 2.059) and faster compiling times. 
+(like uniform function call syntax introduced in version 2.059) and
+faster compilation times. 
 
 That being said, DMD is recommended for development, and GDC for faster execution times.
 It is GDC which is used for building Debian packages.
@@ -103,7 +104,8 @@ Ranges in D resemble iterators in Java, or yield statement in Python and Ruby.
 They can be easily combined in various ways, allowing you to write code in functional style.
 
 Typically, the compiler will do a lot of inlining work, so that the performance will be
-about the same as of manually written deeply nested loops, while the code will remain clean.
+about the same as of manually written deeply nested loops, while the
+code remains clean.
 
 ### Tight integration with D language constructs
 
