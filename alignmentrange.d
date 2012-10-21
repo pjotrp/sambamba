@@ -33,6 +33,11 @@ struct AlignmentBlock {
     VirtualOffset start_virtual_offset;
     VirtualOffset end_virtual_offset;
     Alignment alignment;
+    alias alignment this;
+
+    AlignmentBlock dup() @property const {
+        return AlignmentBlock(start_virtual_offset, end_virtual_offset, alignment.dup);
+    }
 }
 
 /// Policies for alignmentRange

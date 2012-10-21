@@ -88,21 +88,47 @@ class RandomAccessManager {
         _found_index_file = true;
     }
 
-    /// Get single alignment at a given virtual offset.
-    /// Every time new stream is used.
-    Alignment getAlignmentAt(VirtualOffset offset) {
+    /// Get new IChunkInputStream starting from specified virtual offset.
+    IChunkInputStream createStreamStartingFrom(VirtualOffset offset, TaskPool task_pool=null) {
 
         auto _stream = new utils.stream.File(_filename);
         auto _compressed_stream = new EndianStream(_stream, Endian.littleEndian);
         _compressed_stream.seekSet(cast(size_t)(offset.coffset));
 
         auto bgzf_range = BgzfRange(_compressed_stream);
-        auto decompressed_range = map!decompressSerial(bgzf_range);
 
-        IChunkInputStream stream = makeChunkInputStream(decompressed_range);
-        stream.readString(offset.uoffset); // TODO: optimize
+        auto helper(R)(R decompressed_range) {
 
+            auto adjusted_front = AugmentedDecompressedBgzfBlock(decompressed_range.front,
+                                                                 offset.uoffset, 0); 
+            decompressed_range.popFront();
+            auto adjusted_range = chain([adjusted_front], map!makeAugmentedBlock(decompressed_range));
+
+            return cast(IChunkInputStream)makeChunkInputStream(adjusted_range);
+        }
+
+        if (task_pool is null) {
+            return helper(map!decompressSerial(bgzf_range));
+        } else {
+            return helper(task_pool.map!(bgzfrange.decompressBgzfBlock)(bgzf_range));
+        }
+    }
+
+    /// Get single alignment at a given virtual offset.
+    /// Every time new stream is used.
+    Alignment getAlignmentAt(VirtualOffset offset) {
+        auto stream = createStreamStartingFrom(offset);
         return alignmentRange(stream).front.dup;
+    }
+
+    /// Get alignments between two virtual offsets. First virtual offset must point
+    /// to a start of an alignment record.
+    ///
+    /// If $(D task_pool) is not null, it is used for parallel decompression. Otherwise, decompression is serial.
+    auto getAlignmentsBetween(VirtualOffset from, VirtualOffset to, TaskPool task_pool=null) {
+        IChunkInputStream stream = createStreamStartingFrom(from, task_pool);
+        return until!(function (AlignmentBlock record, VirtualOffset vo) { return record.end_virtual_offset > vo; })
+                     (alignmentRange!withOffsets(stream), to);
     }
 
     bool found_index_file() @property {
@@ -110,32 +136,23 @@ class RandomAccessManager {
     }
     private bool _found_index_file = false; // overwritten in constructor if filename is provided
 
-    /// Fetch alignments with given reference sequence id, overlapping [beg..end)
-    auto getAlignments(int ref_id, int beg, int end) {
+    /// BAI file
+    ref const(BaiFile) getBai() const {
+        return _bai;
+    }
 
+    /// Get BAI chunks containing all alignment records overlapping specified region
+    Chunk[] getChunks(int ref_id, int beg, int end) {
         enforce(found_index_file, "BAM index file (.bai) must be provided");
         enforce(ref_id >= 0 && ref_id < _bai.indices.length, "Invalid reference sequence index");
 
+        // Select all bins that overlap with [beg, end).
+        // Then from such bins select all chunks that end to the right of min_offset.
+        // Sort these chunks by leftmost coordinate and remove all overlaps.
+
         auto min_offset = _bai.indices[ref_id].getMinimumOffset(beg);
 
-        auto _stream = new utils.stream.File(_filename);
-        Stream _compressed_stream = new EndianStream(_stream, Endian.littleEndian);
-
-version(none){//DigitalMars) {
-        return _bai.indices[ref_id].bins
-                                   .filter!((Bin b) { return b.canOverlapWith(beg, end); })
-                                   .map!((Bin b) { return b.chunks; })
-                                   .joiner()
-                                   .filter!((Chunk c) { return c.end > min_offset; })
-                                   .array()
-                                   .sort()
-                                   .nonOverlappingChunks()
-                                   .disjointChunkAlignmentRange(_compressed_stream)
-                                   .filterAlignments(ref_id, beg, end);
-
-} else {
-        /// use less functional approach
-        Chunk[] chunks;
+        Chunk[] bai_chunks;
         foreach (b; _bai.indices[ref_id].bins) {
             if (!b.canOverlapWith(beg, end)) {
                 continue;
@@ -143,134 +160,175 @@ version(none){//DigitalMars) {
 
             foreach (chunk; b.chunks) {
                 if (chunk.end > min_offset) {
-                    chunks ~= chunk;
+                    bai_chunks ~= chunk;
                 }
             }
         }
 
-        sort(chunks);
+        sort(bai_chunks);
 
-        auto disjoint_chunks = nonOverlappingChunks(chunks);
+        // optimization
+        if (bai_chunks.length > 0) {
+            bai_chunks[0].beg = max(bai_chunks[0].beg, min_offset);
+        }
 
-        auto alignments = disjointChunkAlignmentRange(disjoint_chunks, _compressed_stream);
+        return bai_chunks;
+    }
 
-        return filterAlignments(alignments, ref_id, beg, end);
-} // endif
+    /// Fetch alignments with given reference sequence id, overlapping [beg..end)
+    auto getAlignments(alias IteratePolicy=withOffsets)(int ref_id, int beg, int end) {
+        auto _stream = new utils.stream.File(_filename);
+        Stream _compressed_stream = new EndianStream(_stream, Endian.littleEndian);
 
+        auto chunks = array(nonOverlappingChunks(getChunks(ref_id, beg, end)));
+
+        debug {
+            /*
+            import std.stdio;
+            writeln("[random access] chunks:");
+            writeln("    ", chunks);
+            */
+        }
+
+        // General plan:
+        //
+        // chunk[0] -> bgzfRange[0] |
+        // chunk[1] -> bgzfRange[1] | (2)
+        //         ....             | -> (joiner(bgzfRange), [start/end v.o.])
+        // chunk[k] -> bgzfRange[k] |                      |
+        //         (1)                     /* parallel */  V                       (3)
+        //                                  (unpacked blocks, [start/end v.o.])
+        //                                                 |
+        //                                                 V                       (4)
+        //                                     (modified unpacked blocks)
+        //                                                 |
+        //                                                 V                       (5)
+        //                                        IChunkInputStream
+        //                                                 |
+        //                                                 V                       (6)
+        //                                 filter out non-overlapping records
+        //                                                 |
+        //                                                 V
+        //                                              that's it!
+
+        auto bgzf_range = getJoinedBgzfRange(chunks);                               // (2)
+        auto decompressed_blocks = getUnpackedBlocks(bgzf_range);                   // (3)
+        auto augmented_blocks = getAugmentedBlocks(decompressed_blocks, chunks);    // (4)
+        IChunkInputStream stream = makeChunkInputStream(augmented_blocks);          // (5)
+        auto alignments = alignmentRange!IteratePolicy(stream);
+        return filterAlignments(alignments, ref_id, beg, end);                      // (6)
     }
 
 private:
     
     string _filename;
     BaiFile _bai;
-   
-}
 
-private {
+public:
 
-    struct DisjointChunkAlignmentRange(Range) {
+    // Let's implement the plan described above!
 
-        this(Range r, ref Stream compressed_stream) {
-            _chunks = r;
-            _compressed_stream = compressed_stream;
-            setupNextStream();
+    // (1) : Chunk -> [BgzfBlock]
+    auto chunkToBgzfRange(Chunk chunk) {
+        auto stream = new utils.stream.File(_filename);
+
+        stream.seekSet(cast(size_t)chunk.beg.coffset);
+
+        return until!(function (BgzfBlock block, ulong offset) { return block.start_offset > offset; })
+                     (BgzfRange(stream), chunk.end.coffset);
+    }
+
+    // (2) : Chunk[] -> [BgzfBlock]
+    auto getJoinedBgzfRange(Chunk[] bai_chunks) {
+        ReturnType!chunkToBgzfRange[] bgzf_ranges;
+        bgzf_ranges.length = bai_chunks.length;
+        foreach (i, ref range; bgzf_ranges) {
+            range = chunkToBgzfRange(bai_chunks[i]);
         }
-        
-        bool empty() @property {
-            return _empty;
+        auto bgzf_blocks = joiner(bgzf_ranges);
+        return bgzf_blocks;
+    }
+
+    // (3) : [BgzfBlock] -> [DecompressedBgzfBlock]
+    static auto getUnpackedBlocks(R)(R bgzf_range) {
+        version(serial) {
+            auto decompressed_range = map!decompressBgzfBlock(bgzf_range);
+        } else {
+            /// up to (taskPool.size) tasks are being executed at every moment
+            auto prefetched_range = prefetch(map!decompress(bgzf_range), taskPool.size);
+            auto decompressed_range = map!"a.yieldForce()"(prefetched_range);
         }
+        return decompressed_range;
+    }
 
-        void popFront() {
+    // (4) : ([DecompressedBgzfBlock], Chunk[]) -> [AugmentedDecompressedBgzfBlock]
+    static auto getAugmentedBlocks(R)(R decompressed_blocks, Chunk[] bai_chunks) {
 
-            _alignment_blocks.popFront();
+        // decompressed blocks:
+        // [.....][......][......][......][......][......][.....][....]
+        //
+        // what we need (chunks):
+        //   [.........]  [.........]        [...........]  [..]
+        //
+        // Solution: augment decompressed blocks with skip_start and skip_end members
+        //           and teach ChunkInputStream to deal with ranges of such blocks.
 
-            if (!_alignment_blocks.empty) {
-                _current_alignment_block = _alignment_blocks.front;
+        static struct Range {
+            this(R blocks, Chunk[] bai_chunks) {
+                _blocks = blocks;
+                _chunks = bai_chunks[];
+            }
 
-                /// Are we finished with the current chunk?
-                if (_current_alignment_block.start_virtual_offset >= _current_chunk.end) {
-                   _chunks.popFront();
-                   setupNextStream();
+            bool empty() @property {
+                return _blocks.empty;
+            }
+
+            AugmentedDecompressedBgzfBlock front() @property {
+                AugmentedDecompressedBgzfBlock result;
+                result.block = _blocks.front;
+
+                if (_chunks.empty) {
+                    return result;
                 }
 
-            } else {
-                _empty = true; /// end of file
+                if (beg.coffset == result.start_offset) {
+                    result.skip_start = beg.uoffset;
+                }
+
+                if (end.coffset == result.start_offset) {
+                    auto to_skip = result.decompressed_data.length - end.uoffset;
+                    assert(to_skip <= ushort.max);
+                    result.skip_end = cast(ushort)to_skip;
+                }
+
+                return result;
+            }
+
+            void popFront() {
+                if (_blocks.front.start_offset == end.coffset) {
+                    _chunks = _chunks[1 .. $];
+                }
+                _blocks.popFront();
+            }
+
+            private {
+                R _blocks;
+                Chunk[] _chunks;
+
+                VirtualOffset beg() @property {
+                    return _chunks[0].beg;
+                }
+
+                VirtualOffset end() @property {
+                    return _chunks[0].end;
+                }
             }
         }
 
-        Alignment front() @property {
-            return _current_alignment_block.alignment;
-        }
-
-    private:
-        Range _chunks;
-        Chunk _current_chunk;
-        Stream _compressed_stream;
-        bool _empty = false;
-
-        // start and end virtual offsets + alignments
-        ReturnType!(alignmentRange!withOffsets) _alignment_blocks;
-
-        AlignmentBlock _current_alignment_block;
-
-        // setup new alignment range, starting from a given offset
-        void setupStream(VirtualOffset offset) {
-
-            // seek coffset in compressed stream
-            _compressed_stream.seekSet(cast(size_t)(offset.coffset));
-
-            // setup BgzfRange and ChunkInputStream
-            auto bgzf_range = BgzfRange(_compressed_stream);
-
-            version(serial) {
-                auto decompressed_range = map!decompressBgzfBlock(bgzf_range);
-            } else {
-                /// up to 2 tasks are being executed at every moment
-                auto prefetched_range = prefetch(map!decompress(bgzf_range), 2);
-                auto decompressed_range = map!"a.yieldForce()"(prefetched_range);
-            }
-            IChunkInputStream stream = makeChunkInputStream(decompressed_range);
-
-            /// seek uoffset in decompressed stream
-            stream.readString(offset.uoffset); // TODO: optimize
-
-            /// Setup new alignment range, with offsets.
-            /// Offsets are needed to stop when we pass the end of 
-            /// the current chunk, and skip to the next one.
-            _alignment_blocks = alignmentRange!withOffsets(stream);
-            if (!_alignment_blocks.empty) {
-                _current_alignment_block = _alignment_blocks.front;
-
-            } else {
-                _empty = true;
-            }
-        }
-      
-        /// Tries to setup a stream corresponding to the front of chunk range.
-        /// Side effects:
-        ///         1) if _chunks is empty, sets _empty flag
-        ///         2) otherwise, updates _current_chunk
-        void setupNextStream() {
-            if (_chunks.empty) {
-                _empty = true;
-            } else {
-                _current_chunk = _chunks.front;
-                setupStream(_current_chunk.beg);
-            }
-        }
+        return Range(decompressed_blocks, bai_chunks);
     }
 
-
-    // Range for iterating alignments contained in supplied intervals.
-    // 
-    // Modifies stream during iteration.
-    auto disjointChunkAlignmentRange(Range)(Range r, ref Stream stream) 
-        if (is(ElementType!Range == Chunk))
-    {
-        return DisjointChunkAlignmentRange!Range(r, stream);
-    }
- 
-    struct AlignmentFilter(R) {
+    static struct AlignmentFilter(R) {
         this(R r, int ref_id, int beg, int end) {
             _range = r;
             _ref_id = ref_id;
@@ -283,7 +341,7 @@ private {
             return _empty;
         }
 
-        Alignment front() @property {
+        ElementType!R front() @property {
             return _current_alignment;
         }
         
@@ -298,7 +356,7 @@ private {
         int _beg;
         int _end;
         bool _empty;
-        Alignment _current_alignment;
+        ElementType!R _current_alignment;
 
         void findNext() {
             if (_range.empty) {
@@ -355,10 +413,8 @@ private {
     // Get range of alignments sorted by leftmost coordinate,
     // together with an interval [beg, end),
     // and return another range of alignments which overlap the region.
-    auto filterAlignments(R)(R r, int ref_id, int beg, int end) 
-        if(is(ElementType!R == Alignment)) 
+    static auto filterAlignments(R)(R r, int ref_id, int beg, int end) 
     {
         return AlignmentFilter!R(r, ref_id, beg, end);
     }
-
 }

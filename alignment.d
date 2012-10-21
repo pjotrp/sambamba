@@ -19,6 +19,8 @@
 */
 module alignment;
 
+import BioD.Base;
+
 import tagvalue;
 import bai.bin;
 
@@ -163,45 +165,66 @@ struct Alignment {
   
     /// Template having multiple segments in sequencing
     @property bool is_paired()                const nothrow { return cast(bool)(flag & 0x1); }
+    /// ditto
+    @property void is_paired(bool b)                { _setFlag( 0, b); }
+
     /// Each segment properly aligned according to the aligner
     @property bool proper_pair()              const nothrow { return cast(bool)(flag & 0x2); }
+    /// ditto
+    @property void proper_pair(bool b)              { _setFlag( 1, b); }
+
     /// Segment unmapped
     @property bool is_unmapped()              const nothrow { return cast(bool)(flag & 0x4); }
+    /// ditto
+    @property void is_unmapped(bool b)              { _setFlag( 2, b); }
+
     /// Next segment in the template unmapped
     @property bool mate_is_unmapped()         const nothrow { return cast(bool)(flag & 0x8); }
+    /// ditto
+    @property void mate_is_unmapped(bool b)         { _setFlag( 3, b); } 
+
     /// Sequence being reverse complemented
     @property bool is_reverse_strand()        const nothrow { return cast(bool)(flag & 0x10); }
+    /// ditto
+    @property void is_reverse_strand(bool b)        { _setFlag( 4, b); } 
+
     /// Sequence of the next segment in the template being reversed
     @property bool mate_is_reverse_strand()   const nothrow { return cast(bool)(flag & 0x20); }
+    /// ditto
+    @property void mate_is_reverse_strand(bool b)   { _setFlag( 5, b); } 
+
     /// The first segment in the template
     @property bool is_first_of_pair()         const nothrow { return cast(bool)(flag & 0x40); }
+    /// ditto
+    @property void is_first_of_pair(bool b)         { _setFlag( 6, b); } 
+
     /// The last segment in the template
     @property bool is_second_of_pair()        const nothrow { return cast(bool)(flag & 0x80); }
+    /// ditto
+    @property void is_second_of_pair(bool b)        { _setFlag( 7, b); } 
+
     /// Secondary alignment
     @property bool is_secondary_alignment()   const nothrow { return cast(bool)(flag & 0x100); }
+    /// ditto
+    @property void is_secondary_alignment(bool b)   { _setFlag( 8, b); } 
+
     /// Not passing quality controls
     @property bool failed_quality_control()   const nothrow { return cast(bool)(flag & 0x200); }
+    /// ditto
+    @property void failed_quality_control(bool b)   { _setFlag( 9, b); } 
+
     /// PCR or optical duplicate
     @property bool is_duplicate()             const nothrow { return cast(bool)(flag & 0x400); }
-
-    // flag setters
-    @property void is_paired(bool b)                { _setFlag( 0, b); }
-    @property void proper_pair(bool b)              { _setFlag( 1, b); }
-    @property void is_unmapped(bool b)              { _setFlag( 2, b); }
-    @property void mate_is_unmapped(bool b)         { _setFlag( 3, b); } 
-    @property void is_reverse_strand(bool b)        { _setFlag( 4, b); } 
-    @property void mate_is_reverse_strand(bool b)   { _setFlag( 5, b); } 
-    @property void is_first_of_pair(bool b)         { _setFlag( 6, b); } 
-    @property void is_second_of_pair(bool b)        { _setFlag( 7, b); } 
-    @property void is_secondary_alignment(bool b)   { _setFlag( 8, b); } 
-    @property void failed_quality_control(bool b)   { _setFlag( 9, b); } 
+    /// ditto
     @property void is_duplicate(bool b)             { _setFlag(10, b); } 
 
+    /// Read name
     @property string read_name() const nothrow {
         // notice -1: the string is zero-terminated, so we should strip that '\0'
         return cast(string)(_chunk[_read_name_offset .. _read_name_offset + _l_read_name - 1]);
     }
 
+    /// ditto
     @property void read_name(string name) {
         enforce(name.length >= 1 && name.length <= 255, "name length must be in 1-255 range");
         _dup();
@@ -217,6 +240,7 @@ struct Alignment {
                                              _n_cigar_op * CigarOperation.sizeof]);
     }
 
+    /// ditto
     @property void cigar(const(CigarOperation)[] c) {
         _dup();
         utils.array.replaceSlice(_chunk,
@@ -229,7 +253,7 @@ struct Alignment {
     }
 
     /// The number of reference bases covered
-    int basesCovered() {
+    int basesCovered() const {
 
         if (this.is_unmapped) {
             return 0; // actually, valid alignments should have empty cigar string
@@ -341,7 +365,7 @@ struct Alignment {
                         raw &= 0xF;
                     }
                 }
-                return CHARACTER_MAP[raw];
+                return Base.fromInternalCode(raw).asCharacter;
             }
 
             void popFront() {
@@ -369,38 +393,14 @@ struct Alignment {
 
         _dup();
 
-        /// Translates sequence character to its internal representation.
-        static ubyte toHalfByte(char c) {
-            /// The table is taken from samtools/bam_import.c
-            static ubyte[256] table = [
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                 1, 2, 4, 8, 15,15,15,15, 15,15,15,15, 15, 0 /*=*/,15,15,
-                15, 1,14, 2, 13,15,15, 4, 11,15,15,12, 15, 3,15,15,
-                15,15, 5, 6,  8,15, 7, 9, 15,10,15,15, 15,15,15,15,
-                15, 1,14, 2, 13,15,15, 4, 11,15,15,12, 15, 3,15,15,
-                15,15, 5, 6,  8,15, 7, 9, 15,10,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15,
-                15,15,15,15, 15,15,15,15, 15,15,15,15, 15,15,15,15
-            ];
-            return table[c];
-        }
-
         auto _raw_length = (seq.length + 1) / 2;
         // set sequence
         ubyte[] _seq = _chunk[_seq_offset .. _seq_offset + _raw_length];
         for (size_t i = 0; i < _raw_length; ++i) {
-            _seq[i] = cast(ubyte)(toHalfByte(seq[2 * i]) << 4);
+            _seq[i] = cast(ubyte)(Base(seq[2 * i]).internal_code << 4);
 
             if (seq.length > 2 * i + 1)
-                _seq[i] |= cast(ubyte)(toHalfByte(seq[2 * i + 1]));
+                _seq[i] |= cast(ubyte)(Base(seq[2 * i + 1]).internal_code);
         }
     }
 
@@ -564,7 +564,7 @@ struct Alignment {
     /// and auxiliary data.
     void write(EndianStream stream) {
         stream.write(cast(int)(_chunk.length));
-		stream.writeExact(_chunk.ptr, _tags_offset);
+        stream.writeExact(_chunk.ptr, _tags_offset);
         writeTags(stream);
     }
 
@@ -893,13 +893,13 @@ mixin template TagStorage() {
 
     /// Writes auxiliary data to output stream
     private void writeTags(Stream stream) {
-		if (std.system.endian == Endian.littleEndian) {
-			stream.writeExact(_tags_chunk.ptr, _tags_chunk.length);
-		} else {
-			fixTagStorageByteOrder();                                // FIXME: should modify on-the-fly
-			stream.writeExact(_tags_chunk.ptr, _tags_chunk.length);  // during writing to the stream
-			fixTagStorageByteOrder();                                
-		}
+        if (std.system.endian == Endian.littleEndian) {
+            stream.writeExact(_tags_chunk.ptr, _tags_chunk.length);
+        } else {
+            fixTagStorageByteOrder();                                // FIXME: should modify on-the-fly
+            stream.writeExact(_tags_chunk.ptr, _tags_chunk.length);  // during writing to the stream
+            fixTagStorageByteOrder();                                
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -1102,4 +1102,30 @@ unittest {
 
     read.clearAllTags();
     assert(read.tagCount() == 0);
+}
+
+/// Alignment wrapper which precomputes $(D end_position) = $(D position) + $(D basesCovered()).
+///
+/// Computation of basesCovered() takes quite a few cycles. Therefore in places where this
+/// property is frequently accessed, it makes sense to precompute it for later use.
+///
+/// The idea is that this should be a drop-in replacement for Alignment in algorithms,
+/// as the struct uses 'alias this' construction for the wrapped read.
+struct EagerAlignment {
+    this(Alignment read) {
+        this.read = read;
+        this.end_position = read.position + read.basesCovered();
+    }
+
+    ///
+    Alignment read;
+    ///
+    alias read this;
+ 
+    /// End position on the reference, computed as position + basesCovered().
+    int end_position;
+
+    EagerAlignment dup() @property const {
+        return EagerAlignment(read.dup);
+    }
 }

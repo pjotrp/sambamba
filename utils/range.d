@@ -35,14 +35,14 @@ import std.array;
 /// is being decorated, because it allows to keep a certain amount
 /// of them being executed simultaneously, utilizing all
 /// CPU cores.
-auto prefetch(Range)(Range r, uint amount) {
+auto prefetch(Range)(Range r, size_t amount) {
 
     enforce(amount > 0, "Amount of elements to prefetch must be positive");
 
     struct Result {
         alias ElementType!Range E;
 
-        this(Range range, uint amount) {
+        this(Range range, size_t amount) {
             _elements = new E[amount];
             _range = range;
             _amount = amount;
@@ -78,9 +78,9 @@ auto prefetch(Range)(Range r, uint amount) {
         }
     private:
         Range _range;
-        int _read = 0;
-        int _consumed = 0;
-        uint _amount;
+        size_t _read = 0;
+        size_t _consumed = 0;
+        size_t _amount;
         E[] _elements = void;
     }
 
@@ -115,45 +115,45 @@ auto chunked(R)(R range, uint chunk_size) {
 
     alias ElementType!R E;
 
-	struct Result {
+    struct Result {
 
-		this(R range, uint chunk_size) {
-			enforce(chunk_size > 0);
-			this.range = range;
-			this.chunk_size = chunk_size; 
-			fillBuffer();
-		}
+        this(R range, uint chunk_size) {
+            enforce(chunk_size > 0);
+            this.range = range;
+            this.chunk_size = chunk_size; 
+            fillBuffer();
+        }
 
-		bool empty() @property {
-			return buffer.length == 0;
-		}
+        bool empty() @property {
+            return buffer.length == 0;
+        }
 
-		E[] front() @property {
-			return buffer;    
-		}
+        E[] front() @property {
+            return buffer;    
+        }
 
-		void popFront() {
-			fillBuffer();
-		}
+        void popFront() {
+            fillBuffer();
+        }
 
-	private:
-		R range;
-		uint chunk_size;
+    private:
+        R range;
+        uint chunk_size;
 
-		E[] buffer;
+        E[] buffer;
 
-		void fillBuffer() {
-			buffer = uninitializedArray!(E[])(chunk_size);
-			for (auto i = 0; i < chunk_size; i++) {
-				if (range.empty) {
-					buffer.length = i;
-					break;
-				}
-				buffer[i] = range.front;
-				range.popFront();
-			}
-		}
-	}
+        void fillBuffer() {
+            buffer = uninitializedArray!(E[])(chunk_size);
+            for (auto i = 0; i < chunk_size; i++) {
+                if (range.empty) {
+                    buffer.length = i;
+                    break;
+                }
+                buffer[i] = range.front;
+                range.popFront();
+            }
+        }
+    }
 
     return Result(range, chunk_size);
 }
@@ -164,7 +164,7 @@ unittest {
     assert(equal(chunked(iota(1, 6), 2), [[1, 2], [3, 4], [5]]));
     assert(equal(chunked(iota(1, 7), 2), [[1, 2], [3, 4], [5, 6]]));
     assert(equal(chunked([1], 10), [[1]]));
-	assert(equal(chunked(iota(1, 10), 7), [[1, 2, 3, 4, 5, 6, 7], [8,9]]));
+    assert(equal(chunked(iota(1, 10), 7), [[1, 2, 3, 4, 5, 6, 7], [8,9]]));
 
     auto r = iota(25);
     assert(equal(joiner(chunked(r, 7)), r));
@@ -176,31 +176,31 @@ unittest {
 /// The analogue in Haskell is Control.Parallel.Strategies.parBuffer
 /// 
 /// Params:
-/// 	prefetch_amount -   how many chunks will be prefetched
-///     chunk_size 		-   the maximum size of each chunk
+///     prefetch_amount -   how many chunks will be prefetched
+///     chunk_size      -   the maximum size of each chunk
 auto parallelTransform(alias func, Range)(Range r, 
-										  uint chunk_size=1, 
-										  uint prefetch_amount=totalCPUs-1)
+                                          uint chunk_size=1, 
+                                          uint prefetch_amount=totalCPUs-1)
 {
-	alias ElementType!Range E;
+    alias ElementType!Range E;
 
-	static auto createTask(E[] elements) {
-		auto task =  task!(pipe!(map!(unaryFun!func), array))(elements);
-		taskPool.put(task);
-		return task;
-	}
+    static auto createTask(E[] elements) {
+        auto task =  task!(pipe!(map!(unaryFun!func), array))(elements);
+        taskPool.put(task);
+        return task;
+    }
 
     if (prefetch_amount == 0) {
         prefetch_amount = 1;
     }
 
-	auto chunks = chunked(r, chunk_size);
-	auto tasks = map!createTask(chunks);
-	auto prefetched = prefetch(tasks, prefetch_amount);
-	return joiner(map!"a.yieldForce()"(prefetched));
+    auto chunks = chunked(r, chunk_size);
+    auto tasks = map!createTask(chunks);
+    auto prefetched = prefetch(tasks, prefetch_amount);
+    return joiner(map!"a.yieldForce()"(prefetched));
 }
 
 unittest {
-	auto range = iota(100);
-	assert(equal(parallelTransform!"a * a"(range), map!"a * a"(range)));
+    auto range = iota(100);
+    assert(equal(parallelTransform!"a * a"(range), map!"a * a"(range)));
 } 

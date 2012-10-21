@@ -1,19 +1,49 @@
-FILES=utils/stream.d bamfile.d chunkinputstream.d bgzfrange.d \
-	  samheader.d reference.d alignment.d \
-	  tagvalue.d utils/switchendianness.d \
-	  validation/samheader.d validation/alignment.d utils/algo.d \
-	  randomaccessmanager.d virtualoffset.d bai/read.d bai/utils/algo.d \
-	  bai/bin.d bai/chunk.d utils/range.d utils/memoize.d sam/serialize.d \
-	  utils/format.d alignmentrange.d bamoutput.d constants.d bgzfcompress.d \
-	  utils/array.d utils/value.d utils/tagstoragebuilder.d samfile.d \
-	  sam/recordparser.d utils/samheadermerger.d utils/graph.d utils/msgpack.d \
-	  reconstruct.d md/core.d md/operation.d md/parse.d splitter.d
+FILES=constants.d \
+	utils/array.d \
+	utils/range.d \
+	utils/stream.d \
+	utils/memoize.d \
+	utils/format.d \
+	utils/algo.d \
+	utils/msgpack.d \
+	utils/switchendianness.d \
+	tagvalue.d \
+	utils/tagstoragebuilder.d \
+	utils/value.d \
+	virtualoffset.d \
+	bai/chunk.d \
+	bai/bin.d \
+	bai/read.d \
+	bai/utils/algo.d \
+	BioD/TinyMap.d \
+	BioD/Base.d \
+	bgzfblock.d \
+	chunkinputstream.d \
+	alignment.d \
+	alignmentrange.d \
+	bgzfrange.d \
+	randomaccessmanager.d \
+	reference.d \
+	samheader.d \
+	bamfile.d \
+	validation/samheader.d \
+	validation/alignment.d \
+	utils/graph.d \
+	utils/samheadermerger.d \
+	sam/serialize.d \
+	sam/recordparser.d \
+	samfile.d \
+	md/operation.d \
+	md/parse.d \
+	md/core.d \
+	reconstruct.d \
+	splitter.d \
+	pileuprange.d \
+	bgzfcompress.d \
+	bamoutput.d
 
 LIBFILES = $(FILES) bindings.d
 TESTFILES = $(FILES) unittests.d utils/tmpfile.d
-
-FILESTODOCUMENT = bamfile.d alignment.d reference.d tagvalue.d \
-				  samheader.d validation/samheader.d validation/samheader.d
 
 all: unittests
 
@@ -31,7 +61,7 @@ unittests: $(TESTFILES)
 	./run_unittests
 
 unittests-gdc: $(TESTFILES)
-	gdc $(TESTFILES) -O0 -funittest -o run_unittests -lpthread -fdebug -fversion=serial
+	gdc $(TESTFILES) -O0 -g -funittest -o run_unittests -lpthread -fdebug -fversion=serial
 	./run_unittests
 
 clean:

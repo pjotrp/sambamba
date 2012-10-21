@@ -1,20 +1,58 @@
-FILES=../utils/stream.d ../bamfile.d ../chunkinputstream.d ../bgzfrange.d \
-	  ../samheader.d ../reference.d ../alignment.d \
-	  ../tagvalue.d ../utils/switchendianness.d \
-	  ../validation/alignment.d ../utils/algo.d ../randomaccessmanager.d \
-	  ../bai/read.d ../bai/chunk.d ../bai/bin.d ../bai/utils/algo.d \
-	  ../virtualoffset.d ../utils/range.d ../utils/memoize.d ../sam/serialize.d \
-	  ../utils/format.d ../alignmentrange.d ../constants.d ../bamoutput.d \
-	  ../bgzfcompress.d ../utils/array.d ../utils/value.d ../utils/msgpack.d
+FILES=$(addprefix ../,\
+	constants.d \
+	utils/array.d \
+	utils/range.d \
+	utils/stream.d \
+	utils/memoize.d \
+	utils/format.d \
+	utils/algo.d \
+	utils/msgpack.d \
+	utils/switchendianness.d \
+	tagvalue.d \
+	utils/tagstoragebuilder.d \
+	utils/value.d \
+	virtualoffset.d \
+	bai/chunk.d \
+	bai/bin.d \
+	bai/read.d \
+	bai/utils/algo.d \
+	BioD/TinyMap.d \
+	BioD/Base.d \
+	bgzfblock.d \
+	chunkinputstream.d \
+	alignment.d \
+	alignmentrange.d \
+	bgzfrange.d \
+	randomaccessmanager.d \
+	reference.d \
+	samheader.d \
+	bamfile.d \
+	validation/samheader.d \
+	validation/alignment.d \
+	utils/graph.d \
+	utils/samheadermerger.d \
+	sam/serialize.d \
+	sam/recordparser.d \
+	samfile.d \
+	md/operation.d \
+	md/parse.d \
+	md/core.d \
+	reconstruct.d \
+	bgzfcompress.d \
+	bamoutput.d \
+	splitter.d)
 
-DMDFLAGS=-g -debug#-O -release -inline#-g -debug
+DMDFLAGS=-g -O -release -inline#-g -debug
 GDCFLAGS=-O3 -frelease -finline -fno-assert -fno-bounds-check -lpthread -g -funroll-all-loops -finline-limit=8192 -I..
 
 coverage: $(FILES) coverage.d ../pileuprange.d
-	dmd $(FILES) coverage.d ../pileuprange.d $(DMDFLAGS) -version=serial
+	dmd $(FILES) coverage.d ../pileuprange.d $(DMDFLAGS) -ofcoverage
 
 coverage-gdc: $(FILES) coverage.d ../pileuprange.d
-	gdc $(FILES) coverage.d ../pileuprange.d $(GDCFLAGS) -o coverage
+	gdc $(FILES) ../pileuprange.d coverage.d $(GDCFLAGS) -o coverage
+
+snpcaller: $(FILES) ../pileuprange.d ../BioD/Call.d ../BioD/TinyMap.d ../BioD/Genotype.d ../snpcallers/maq.d snpcaller.d
+	rdmd --build-only -I.. $(DMDFLAGS) snpcaller.d
 
 validator: $(FILES) validator.d
 	dmd $(FILES) validator.d -ofvalidator $(DMDFLAGS) -version=serial

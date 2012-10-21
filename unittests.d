@@ -17,6 +17,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 */
+import bgzfrange;
 import samheader;
 import bamfile;
 import bamoutput;
@@ -24,6 +25,7 @@ import samfile;
 import sam.recordparser;
 import bgzfrange;
 import reconstruct;
+import pileuprange;
 
 import validation.samheader;
 import validation.alignment;
@@ -103,7 +105,7 @@ unittest {
         if (read_name != value) {
             writeln("tag: ", tag, "\tread_name: ", read_name, "\tvalue: ", value);
             writeln("value bam_typeid: ", alignment.tags[tag.idup].bam_typeid);
-		}
+        }
 
         assert(read_name == value);
     }
@@ -121,15 +123,16 @@ unittest {
     assertThrown!ZlibException(walkLength(BamFile(fn).alignments));
 
     writeln("Testing random access...");
-    fn = buildPath(dirName(__FILE__), "test", "data", "ex1_header.bam");
+    fn = buildPath(dirName(__FILE__), "test", "data", "bins.bam");
     bf = BamFile(fn);
 
     void compareWithNaiveApproach(int beg, int end) {
 
-        auto refseq = array(bf["chr1"][beg .. end]);
+        auto refseq = array(bf["large"][beg .. end]);
 
         auto naive = array(filter!((Alignment a) { 
-                         return bf.reference(a.ref_id).name == "chr1" &&
+                         return a.ref_id != -1 &&
+                                bf.reference(a.ref_id).name == "large" &&
                                 a.position < end &&
                                 a.position + a.basesCovered() > beg; })
                             (bf.alignments!withoutOffsets));
@@ -158,6 +161,23 @@ unittest {
     compareWithNaiveApproach(-100, 1000);
     compareWithNaiveApproach(   0, 1900);
     compareWithNaiveApproach(   1,  279);
+    for (auto i = 50_000; i < 1_000_000; i += 50_000) {
+        compareWithNaiveApproach(i, i + 100);
+    }
+
+    {
+        auto fst_offset_tiny = bf["tiny"].startVirtualOffset();
+        auto fst_offset_small = bf["small"].startVirtualOffset();
+        auto fst_offset_large = bf["large"].startVirtualOffset();
+
+        auto fst_read_tiny = bf.getAlignmentAt(fst_offset_tiny);
+        auto fst_read_small = bf.getAlignmentAt(fst_offset_small);
+        auto fst_read_large = bf.getAlignmentAt(fst_offset_large);
+
+        assert(fst_read_tiny.read_name == "tiny:r1:0..1:len1:bin4681:hexbin0x1249");
+        assert(fst_read_small.read_name == "small:r1:0..1:len1:bin4681:hexbin0x1249");
+        assert(fst_read_large.read_name == "large:r1:0..1:len1:bin4681:hexbin0x1249");
+    }
 
     writeln("Testing Value code...");
     Value v = 5;
@@ -250,6 +270,62 @@ unittest {
     auto sf = SamFile(buildPath(dirName(__FILE__), "test", "data", "ex1_header.sam"));
     assert(sf.alignments.front.ref_id == 0);
     assert(equal(sf.alignments, bf.alignments!withoutOffsets));
+    }
+
+    writeln("Testing pileup (high-level aspects)...");
+    {
+        // All of pileup functions should automatically filter out unmapped reads.
+
+        // When reads in a range are aligned to different references,
+        // pileup objects should process only the first one.
+        bf = BamFile(fn); // chr1, chr2
+        {
+            auto pileup = makePileup(bf.alignments);
+            foreach (column; pileup) {
+                foreach (read; column.reads) {
+                    assert(bf.reference_sequences[read.ref_id].name == "chr1");
+                    assert(read.ref_id == column.ref_id);
+                    assert(!read.is_unmapped);
+                }
+            }
+        }
+        // However, if pileupColumns is used, columns corresponding to chr1
+        // should come first, and after them -- those for chr2
+        {
+            auto columns = pileupColumns(bf.alignments);
+            int current_ref_id = -1;
+
+                                      // [99 .. 1569]   [1 .. 1567]
+            int[2] expected_columns = [1470,            1567]; 
+            foreach (column; columns) {
+                int ref_id = column.ref_id;
+                --expected_columns[ref_id];
+                if (ref_id != current_ref_id) {
+                    assert(ref_id > current_ref_id);
+                    switch (ref_id) {
+                        case 0:
+                            assert(column.reads.front.read_name == "EAS56_57:6:190:289:82");
+                            assert(column.position == 99);
+                            break;
+                        case 1:
+                            assert(column.reads.front.read_name == "B7_591:8:4:841:340");
+                            assert(column.position == 0);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    current_ref_id = ref_id;
+                }
+                if (!column.reads.empty) {
+                    foreach (read; column.reads) {
+                        assert(read.ref_id == ref_id);
+                        assert(!read.is_unmapped);
+                    }
+                }
+            }
+            assert(expected_columns == [0, 0]);
+        }
     }
 
 }

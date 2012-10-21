@@ -29,6 +29,7 @@ import bgzfrange;
 import chunkinputstream;
 import randomaccessmanager;
 import bai.read;
+import bai.chunk;
 import utils.range;
 
 import utils.stream;
@@ -118,11 +119,11 @@ struct BamFile {
         Returns: range of all alignments in the file.
 
         However, using several ranges is not recommended since it can hurt
-		disk access performance.
+        disk access performance.
      */
     auto alignments(alias IteratePolicy=withoutOffsets)() @property {
-		auto _decompressed_stream = getDecompressedAlignmentStream();
-		return alignmentRange!IteratePolicy(_decompressed_stream);
+        auto _decompressed_stream = getDecompressedAlignmentStream();
+        return alignmentRange!IteratePolicy(_decompressed_stream);
     }
 
     /**
@@ -136,7 +137,7 @@ struct BamFile {
     auto alignmentsWithProgress(alias IteratePolicy=withoutOffsets)
         (void delegate(lazy float p) progressBarFunc) 
     {
-		auto _decompressed_stream = getDecompressedAlignmentStream();
+        auto _decompressed_stream = getDecompressedAlignmentStream();
         auto alignments_with_offsets = alignmentRange!withOffsets(_decompressed_stream);
 
         static struct Result(alias IteratePolicy, R, S) {
@@ -192,9 +193,34 @@ struct BamFile {
     }
 
     /**
+      Get all alignments between two virtual offsets.
+
+      First offset must point to the start of an alignment record,
+      and be strictly less than the second one.
+
+      For decompression, uses task pool specified at BamFile construction.
+     */ 
+    auto getAlignmentsBetween(VirtualOffset from, VirtualOffset to) {
+        enforce(from < to, "First offset must be strictly less than second");
+        enforce(_stream_is_seekable, "Stream is not seekable");
+        
+        return _random_access_manager.getAlignmentsBetween(from, to, _task_pool);
+    }
+
+    /**
+      Get BAI chunks containing all reads overlapping specified region.
+     */
+    Chunk[] getChunks(int ref_id, int beg, int end) {
+        enforce(_random_access_manager !is null);
+        enforce(beg < end);
+
+        return _random_access_manager.getChunks(ref_id, beg, end);
+    }
+
+    /**
       Returns reference sequence with id $(D ref_id).
      */
-    auto reference(int ref_id) {
+    ReferenceSequence reference(int ref_id) {
         enforce(ref_id < _reference_sequences.length, "Invalid reference index");
         return ReferenceSequence(_random_access_manager, 
                                  ref_id,
@@ -204,7 +230,7 @@ struct BamFile {
     /**
       Returns reference sequence named $(D ref_name).
      */
-    auto opIndex(string ref_name) {
+    ReferenceSequence opIndex(string ref_name) {
         enforce(hasReference(ref_name), "Reference with name " ~ ref_name ~ " does not exist");
         auto ref_id = _reference_sequence_dict[ref_name];
         return reference(ref_id);
@@ -232,8 +258,8 @@ private:
     Stream _bam;                            // decompressed + endian conversion
     bool _stream_is_seekable;
 
-	// Virtual offset at which alignment records start.
-	VirtualOffset _alignments_start_voffset;
+    // Virtual offset at which alignment records start.
+    VirtualOffset _alignments_start_voffset;
 
     BaiFile _dont_access_me_directly_use_bai_file_for_that;
     enum BaiStatus {
@@ -307,8 +333,8 @@ private:
         }
     }
 
-	// get decompressed stream out of compressed BAM file
-	IChunkInputStream getDecompressedStream() {
+    // get decompressed stream out of compressed BAM file
+    IChunkInputStream getDecompressedStream() {
 
         auto compressed_stream = getSeekableCompressedStream();
 
@@ -325,11 +351,11 @@ private:
         } else {
             return makeChunkInputStream(chunk_range);
         }
-	}
+    }
 
 
-	// get decompressed stream starting from the first alignment record
-	IChunkInputStream getDecompressedAlignmentStream() {
+    // get decompressed stream starting from the first alignment record
+    IChunkInputStream getDecompressedAlignmentStream() {
         auto compressed_stream = getSeekableCompressedStream();
 
         if (compressed_stream !is null) {
@@ -341,7 +367,7 @@ private:
             version(serial) {
                 auto chunk_range = map!decompressBgzfBlock(bgzf_range);
             } else {
-                auto chunk_range = _task_pool.map!decompressBgzfBlock(bgzf_range, 25);
+                auto chunk_range = _task_pool.map!decompressBgzfBlock(bgzf_range, 24);
             }
         
             auto sz = compressed_stream.size;
@@ -352,12 +378,12 @@ private:
             // must be initialized in initializeStreams()
             return _decompressed_stream;
         }
-	}
+    }
 
     // sets up the streams and ranges
     void initializeStreams() {
         
-		_decompressed_stream = getDecompressedStream();
+        _decompressed_stream = getDecompressedStream();
         _bam = new EndianStream(_decompressed_stream, Endian.littleEndian); 
     }
 
