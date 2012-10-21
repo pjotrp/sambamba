@@ -26,6 +26,7 @@ import virtualoffset;
 import std.stream;
 import std.exception;
 import std.array;
+import std.conv;
 
 /**
   Stores reference sequence name and length
@@ -66,8 +67,8 @@ struct ReferenceSequence {
     }
 
     /// Get alignments overlapping [start, end)
-    auto opSlice(int start, int end) {
-        enforce(start < end, "start must be less than end");
+    auto opSlice(int start, int end) {   // <- should be uint?
+        enforce(end == uint.max || start < end, "start must be less than end (" ~ to!string(start) ~ "," ~ to!string(end) ~ ")");
         enforce(_manager !is null, "random access is not available");
         return _manager.getAlignments(_ref_id, start, end);
     }
