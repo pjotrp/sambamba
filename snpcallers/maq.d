@@ -228,6 +228,68 @@ struct ErrorModelCoefficients {
     }
 }
 
+// Encapsulates information about genotype likelihoods at a site.
+struct GenotypeLikelihoodInfo {
+
+    alias ErrorModelCoefficients.Dict ScoreDict;
+
+    alias DiploidGenotype!Base5 Gt;
+
+    this(ScoreDict dict) {
+
+        _dict = dict;
+        size_t k = 0;
+
+        // copy all data into a buffer, combining that with insertion sort
+        foreach (gt, score; _dict) {
+            if (k == 0) {
+                gt_buf[k++] = gt;
+            } else {
+                size_t j = k;
+                while (j > 0 && _dict[gt_buf[j-1]] > score) {
+                    gt_buf[j] = gt_buf[j-1];
+                    --j;
+                }
+                gt_buf[j] = gt;
+                ++k;
+            }
+        }
+
+        assert(k >= 2);
+
+        _count = cast(ubyte)k;
+    }
+
+    size_t count() @property const {
+        return _count;
+    }
+
+    static struct GtInfo {
+        private {
+            Gt _gt;
+            float _prob;
+        } 
+
+        Gt genotype() @property const {
+            return _gt;
+        }
+
+        float score() @property const {
+            return _prob;
+        }
+    }
+
+    GtInfo opIndex(size_t index) {
+        assert(index < count);
+        auto gt = gt_buf[index];
+        return GtInfo(gt, _dict[gt]);
+    }
+
+    private Gt[25] gt_buf;
+    private ubyte _count;
+    private ScoreDict _dict;
+}
+
 class ErrorModel {
     
     private {
@@ -306,7 +368,7 @@ final class MaqSnpCaller {
         _minimum_base_quality = q;
     }
 
-    private ErrorModel errmod() @property {
+    ErrorModel errmod() @property {
         if (_need_to_recompute_errmod) {
             synchronized {
                 if (_need_to_recompute_errmod) {
@@ -320,13 +382,12 @@ final class MaqSnpCaller {
 
     private ErrorModel _errmod;
 
-    /// Make call on a pileup column
-    final Nullable!DiploidCall5 makeCall(C)(C column, string reference="", string sample="") {
-
-        Nullable!DiploidCall5 result;
+    /// Get genotype likelihoods
+    final GenotypeLikelihoodInfo genotypeLikelihoodInfo(C)(C column) {
 
         ReadBase[8192] buf = void;
         size_t i = 0;
+
         foreach (read; column.reads) {
             if (i == 8192)
                 break;
@@ -341,39 +402,31 @@ final class MaqSnpCaller {
         }
 
         if (i == 0) {
+            GenotypeLikelihoodInfo result;
             return result;
         }
 
         ReadBase[] rbs = buf[0 .. i];
 
         auto likelihood_dict = errmod.computeLikelihoods(rbs);
-        alias DiploidGenotype!Base5 Gt;
-        Gt[25] gt_buf;
-        size_t k = 0;
-        foreach (gt; likelihood_dict.keys) {
-            gt_buf[k++] = gt;
-        }
+        return GenotypeLikelihoodInfo(likelihood_dict);
+    }
 
-        assert(k >= 2);
+    /// Make call on a pileup column
+    final Nullable!DiploidCall5 makeCall(C)(C column, string reference="", string sample="") {
 
-        auto gts = gt_buf[0..k];
-        for (i = 1; i < k; i++) {
-            auto gt = gts[i];
-            float likelihood = likelihood_dict[gts[i]];
-            size_t j = i;
-            while (j > 0 && likelihood_dict[gts[j-1]] > likelihood) {
-                gts[j] = gts[j-1];
-                --j;
-            }
-            gts[j] = gt; 
-        }
+        auto gts = genotypeLikelihoodInfo(column);
+
+        Nullable!DiploidCall5 result;
+
+        if (gts.count < 2) return result;
 
         static if (__traits(compiles, column.reference_base)) {
             auto refbase = Base5(column.reference_base);
         } else {
             auto refbase = Base5('N');
         }
-
+        
         if (sample == "") {
             auto rg = column.reads.front["RG"];
             if (!rg.is_nothing) {
@@ -382,8 +435,8 @@ final class MaqSnpCaller {
         }
 
         result = DiploidCall5(sample, reference, column.position,
-                              refbase, gts[0],
-                              likelihood_dict[gts[1]] - likelihood_dict[gts[0]]);
+                              refbase, gts[0].genotype,
+                              gts[1].score - gts[0].score);
                 
         return result;
     }
