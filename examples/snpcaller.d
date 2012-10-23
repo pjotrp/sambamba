@@ -141,6 +141,7 @@ void main(string[] args) {
 
             file.flush();
         }
+        file.write("\u0004\u0000");  // make sure there is an eof marker
 
     } catch (Throwable e) {
         stderr.writeln(e.msg);
