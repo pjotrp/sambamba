@@ -24,6 +24,7 @@ module randomaccessmanager;
 
 import bgzfrange;
 import virtualoffset;
+import constants;
 import alignment;
 import alignmentrange;
 import chunkinputstream;
@@ -88,6 +89,35 @@ class RandomAccessManager {
         _found_index_file = true;
     }
 
+    /// If file ends with EOF block, returns virtual offset of the start of EOF block.
+    /// Otherwise, returns virtual offset of the physical end of file.
+    VirtualOffset eofVirtualOffset() const {
+        ulong file_offset = std.file.getSize(_filename);
+        if (hasEofBlock()) {
+            return VirtualOffset(file_offset - BAM_EOF.length, 0);
+        } else {
+            return VirtualOffset(file_offset, 0);
+        }
+    }
+
+    /// Returns true if the file ends with EOF block, and false otherwise.
+    bool hasEofBlock() const {
+        auto _stream = new utils.stream.File(_filename);
+        if (_stream.size < BAM_EOF.length) {
+            return false;
+        }
+
+        ubyte[BAM_EOF.length] buf;
+        _stream.seekEnd(-cast(int)BAM_EOF.length);
+
+        _stream.readExact(&buf, BAM_EOF.length);
+        if (buf != BAM_EOF) {
+            return false;
+        }
+
+        return true;
+    }
+
     /// Get new IChunkInputStream starting from specified virtual offset.
     IChunkInputStream createStreamStartingFrom(VirtualOffset offset, TaskPool task_pool=null) {
 
@@ -119,6 +149,14 @@ class RandomAccessManager {
     Alignment getAlignmentAt(VirtualOffset offset) {
         auto stream = createStreamStartingFrom(offset);
         return alignmentRange(stream).front.dup;
+    }
+
+    /// Get BGZF block at a given offset.
+    BgzfBlock getBgzfBlockAt(ulong offset) {
+        auto stream = new utils.stream.File(_filename);
+        stream.seekSet(offset);
+        return BgzfRange(stream).front;
+
     }
 
     /// Get alignments between two virtual offsets. First virtual offset must point
@@ -252,13 +290,18 @@ public:
     // (3) : [BgzfBlock] -> [DecompressedBgzfBlock]
     static auto getUnpackedBlocks(R)(R bgzf_range) {
         version(serial) {
-            auto decompressed_range = map!decompressBgzfBlock(bgzf_range);
+            return map!decompressBgzfBlock(bgzf_range);
         } else {
-            /// up to (taskPool.size) tasks are being executed at every moment
-            auto prefetched_range = prefetch(map!decompress(bgzf_range), taskPool.size);
-            auto decompressed_range = map!"a.yieldForce()"(prefetched_range);
+            InputRange!DecompressedBgzfBlock result;
+            if (taskPool.size < 2) {
+                result = inputRangeObject(map!decompressBgzfBlock(bgzf_range));
+            } else {
+                // up to (taskPool.size) tasks are being executed at every moment
+                auto prefetched_range = prefetch(map!decompress(bgzf_range), taskPool.size);
+                result = inputRangeObject(map!"a.yieldForce()"(prefetched_range));
+            }
+            return result;
         }
-        return decompressed_range;
     }
 
     // (4) : ([DecompressedBgzfBlock], Chunk[]) -> [AugmentedDecompressedBgzfBlock]
@@ -276,16 +319,22 @@ public:
         static struct Range {
             this(R blocks, Chunk[] bai_chunks) {
                 _blocks = blocks;
+                if (_blocks.empty) {
+                    _empty = true;
+                } else {
+                    _cur_block = _blocks.front;
+                    _blocks.popFront();
+                }
                 _chunks = bai_chunks[];
             }
 
             bool empty() @property {
-                return _blocks.empty;
+                return _empty;
             }
 
             AugmentedDecompressedBgzfBlock front() @property {
                 AugmentedDecompressedBgzfBlock result;
-                result.block = _blocks.front;
+                result.block = _cur_block;
 
                 if (_chunks.empty) {
                     return result;
@@ -305,14 +354,21 @@ public:
             }
 
             void popFront() {
-                if (_blocks.front.start_offset == end.coffset) {
+                if (_cur_block.start_offset == end.coffset) {
                     _chunks = _chunks[1 .. $];
                 }
+                if (_blocks.empty) {
+                    _empty = true;
+                    return;
+                }
+                _cur_block = _blocks.front;
                 _blocks.popFront();
             }
 
             private {
                 R _blocks;
+                ElementType!R _cur_block;
+                bool _empty;
                 Chunk[] _chunks;
 
                 VirtualOffset beg() @property {
@@ -395,6 +451,10 @@ public:
                     return;
                 }
 
+                if (_current_alignment.position > _beg) {
+                    return; // definitely overlaps
+                }
+
                 if (_current_alignment.position +
                     _current_alignment.basesCovered() <= _beg) 
                 {
@@ -402,6 +462,8 @@ public:
                     ///  [-----------)
                     ///               [beg .......... end)
                     _range.popFront();
+                    /// Zero-length reads are also considered non-overlapping,
+                    /// so for consistency the inequality 12 lines above is strict.
                 } else {
                     return; /// _current_alignment overlaps the region
                 }
