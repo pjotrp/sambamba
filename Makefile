@@ -1,69 +1,49 @@
-FILES=constants.d \
-	utils/array.d \
-	utils/range.d \
-	utils/stream.d \
-	utils/memoize.d \
-	utils/format.d \
-	utils/algo.d \
-	utils/msgpack.d \
-	utils/switchendianness.d \
-	tagvalue.d \
-	utils/tagstoragebuilder.d \
-	utils/value.d \
-	virtualoffset.d \
-	bai/chunk.d \
-	bai/bin.d \
-	bai/read.d \
-	bai/utils/algo.d \
-	BioD/TinyMap.d \
-	BioD/Base.d \
-	bgzfblock.d \
-	chunkinputstream.d \
-	alignment.d \
-	alignmentrange.d \
-	bgzfrange.d \
-	randomaccessmanager.d \
-	reference.d \
-	samheader.d \
-	bamfile.d \
-	validation/samheader.d \
-	validation/alignment.d \
-	utils/graph.d \
-	utils/samheadermerger.d \
-	sam/serialize.d \
-	sam/recordparser.d \
-	samfile.d \
-	md/operation.d \
-	md/parse.d \
-	md/core.d \
-	reconstruct.d \
-	splitter.d \
-	pileuprange.d \
-	bgzfcompress.d \
-	bamoutput.d
+D_COMPILER=dmd
+D_FLAGS=-IBioD -version=development #-O -release -inline 
 
-LIBFILES = $(FILES) bindings.d
-TESTFILES = $(FILES) unittests.d utils/tmpfile.d
+RDMD_FLAGS=--compiler=$(D_COMPILER) --build-only $(D_FLAGS)
 
-all: unittests
+all:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -ofbuild/sambamba main.d
 
-sam/recordparser.d : sam/sam_alignment.rl
-	cd sam && make recordparser.d
+release:
+	mkdir -p build/
+	rdmd --build-only --force -O -release -inline -IBioD/ -ofbuild/sambamba main.d
 
-debug:
-	dmd $(LIBFILES) -oflibbam.so -debug -g -shared
+sambamba-ldmd2-64:
+	mkdir -p build/
+	rdmd --build-only --force --compiler=ldmd2 -O3 -m64 -release -inline -IBioD/ -ofbuild/sambamba main.d
 
-region-parser: region.rl
-	ragel region.rl -D -G2
+sambamba-ldmd2-32:
+	mkdir -p build/
+	rdmd --build-only --force --compiler=ldmd2 -O3 -m32 -release -inline -IBioD/ -ofbuild/sambamba main.d
 
-unittests: $(TESTFILES)
-	dmd $(TESTFILES) -debug -g -unittest -ofrun_unittests -version=serial
-	./run_unittests
+sambamba-flagstat:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-flagstat sambamba/flagstat.d
 
-unittests-gdc: $(TESTFILES)
-	gdc $(TESTFILES) -O0 -g -funittest -o run_unittests -lpthread -fdebug -fversion=serial
-	./run_unittests
+sambamba-merge:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-merge sambamba/merge.d
+
+sambamba-index:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-index sambamba/index.d
+
+sambamba-sort:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-sort sambamba/sort.d
+
+sambamba-view:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-view sambamba/view.d
+
+sambamba-slice:
+	mkdir -p build/
+	rdmd $(RDMD_FLAGS) -version=standalone -ofbuild/sambamba-slice sambamba/slice.d
+
+.PHONY: clean
 
 clean:
-	rm -f *.o 
-	cd sam && make clean
+	rm -rf build/

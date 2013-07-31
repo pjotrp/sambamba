@@ -3,3 +3,4 @@ run_unittests
 sam/recordparser.d
 dcollections/
 examples/snpcaller
+build/
