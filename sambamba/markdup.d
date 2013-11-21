@@ -628,7 +628,7 @@ bool pairedEndsInfoComparator(P1, P2)(auto ref P1 p1, auto ref P2 p2) {
 struct MarkDuplicatesConfig {
     ubyte hash_table_size_log2 = 18;
     size_t overflow_list_size = 200_000;
-    string tmpdir = "/tmp";
+    string tmpdir = "/tmp";  // FIXME: default should pick up ENV
 
     // called on each group of PE duplicates
     void delegate(PairedEndsInfo[]) pe_callback = null;
@@ -1001,6 +1001,7 @@ version(standalone) {
 
 int markdup_main(string[] args) {
 
+    // CLI options and configuration
     MarkDuplicatesConfig cfg;
     bool remove_duplicates;
     size_t n_threads = totalCPUs;
@@ -1033,10 +1034,12 @@ int markdup_main(string[] args) {
         }
 
         auto pool = new TaskPool(n_threads);
-        scope(exit) pool.finish();
+        scope(exit) pool.finish();  // exit handler
 
-        if (cmp_with_picard_mode) {
+        if (cmp_with_picard_mode) { // For development purposes mostly
             static class PicardChecker {
+                // Compare Sambamba output with that of another rmdup
+                // routine (Picard)
                 enum output_filename = "/tmp/_diff1.bam";
                 enum output_filename2 = "/tmp/_diff2.bam";
                 this(string fn1, string fn2, TaskPool pool) {
@@ -1086,13 +1089,15 @@ int markdup_main(string[] args) {
             cfg.se_callback = (se_dups, has_paired) => checker.check(se_dups, has_paired);
         }
 
-        io_buffer_size <<= 20; // -> megabytes
+        // This is the start of the rmdup routine, first size the buffers
+        io_buffer_size <<= 20; // -> convert to megabytes
 
-        cfg.hash_table_size_log2 = 10;
+        cfg.hash_table_size_log2 = 10; // FIXME: overrides default value 18
         while ((2UL << cfg.hash_table_size_log2) <= hash_table_size)
             cfg.hash_table_size_log2 += 1;
         // 2^^(cfg.hash_table_size_log2 + 1) > hash_table_size
 
+        // Set up the BAM reader
         auto bam = new BamReader(args[1], pool);
         auto n_refs = bam.reference_sequences.length;
         enforce(n_refs < 16384, "More than 16383 reference sequences are unsupported");
