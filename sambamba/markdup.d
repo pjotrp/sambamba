@@ -1097,14 +1097,14 @@ int markdup_main(string[] args) {
             cfg.hash_table_size_log2 += 1;
         // 2^^(cfg.hash_table_size_log2 + 1) > hash_table_size
 
-        // Set up the BAM reader
+        // Set up the BAM reader and pass in the thread pool
         auto bam = new BamReader(args[1], pool);
         auto n_refs = bam.reference_sequences.length;
         enforce(n_refs < 16384, "More than 16383 reference sequences are unsupported");
 
         auto rg_index = new ReadGroupIndex(bam.header);
 
-        VirtualOffset[] offsets;
+        VirtualOffset[] offsets; // Harvest (bgzf) BAM read offsets
 
         stderr.writeln("finding positions of the duplicate reads in the file...");
         if (!show_progress)
