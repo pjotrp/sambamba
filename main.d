@@ -54,7 +54,7 @@ int main(string[] args) {
         case "sort":     return sort_main(_args);
         case "flagstat": return flagstat_main(_args);
         case "slice":    return slice_main(_args);
-        case "markdup": return markdup_main(_args);
+        case "markdup":  return markdup_main(_args);
         default: 
             printUsage();
             return 1;

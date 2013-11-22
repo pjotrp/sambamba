@@ -37,8 +37,8 @@ expensive.
 
 Sambamba calls into several modules for indexing, sorting etc. The CLI starts
 from main.d and multiplexes into, for example, markup.d. Here we visit markdup
-because it goes through the BAM/SAM data horizontally read by read. Next we go
-through the data vertically by visiting the sambamba view functionality.
+because it goes through the BAM/SAM data read by read. Next we go
+through the data by visiting the sambamba view functionality.
 
 # markup.d
 
@@ -103,8 +103,9 @@ only does ragel give us speed, it also includes syntactical checking and
 error messages. Quite a large step from ad hoc hand-written textual 
 parsers so common in bioinformatics. Have a look at Ragel also when you 
 write parsers for other programming languages. For the SAM parser
-look in BioD/src_ragel/sam_alignment.rl, which is 500 lines of Ragel
-mixed with D statements that are used to generate the parser.
+look in BioD/src_ragel/sam_alignment.rl, which is 400 lines of Ragel
+mixed with D statements that are used to generate the parser and unit 
+tests.
 
 With sambamba Ragel is also used for parsing command line arguments and the
 filtering language which includes awesome support for regular expressions(!)
@@ -119,3 +120,19 @@ is used.
 
 The first step is to read the unittests in BioD/src_ragel/sam_alignment.rl.
 These show how a SAM record is unpacked.
+
+The actual work happens in processAlignments() which takes an output
+method as an argument (SAM, BAM/MsgPack or JSON). Check out SamSerializer
+next:
+
+# sambamba/utils/view/alignmentrangeprocessor.d
+
+The sequence writer will write sequences using a thread pool (again).
+
+# BioD/bio/sam/writer.d
+
+The SamSerializer.process() function processes reads in parallel, gathers
+output in chunks in parallel and outputs a set of chunks. To write to output it
+locks the file. Impressively in all the sambamba and BioD fine grained parallel
+code, locking is called only 5 times!
+
