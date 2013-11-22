@@ -67,5 +67,6 @@ unmappedReads(); all read related.
 
 In a way the BamReader class is one of the more complex ones as it supports
 multi-threading, multiple policies and ways of accessing data (seekable with
-index, sequential, compressed, uncompressed etc.).
+index, sequential, compressed, uncompressed etc.). Much of this
+complexity is handled by the underlying classes.
 
