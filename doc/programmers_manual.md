@@ -35,8 +35,10 @@ expensive.
 
 # main.d
 
-Sambamba calls into several modules for indexing, sorting etc. The CLI
-starts from main.d and multiplexes into, for example, markup.d
+Sambamba calls into several modules for indexing, sorting etc. The CLI starts
+from main.d and multiplexes into, for example, markup.d. Here we visit markdup
+because it goes through the BAM/SAM data horizontally read by read. Next we go
+through the data vertically by visiting the sambamba view functionality.
 
 # markup.d
 
@@ -79,7 +81,6 @@ multi-threaded (in-place) 'unstableSort' a mixed algorithm of quick sort and
 heap sort algorithms. From the sorted data we can pull the matching 
 read positions and mark/remove the duplicate reads.
 
-
 # BioD/bio/bam/reader.d
 
 Interesting methods are header() which returns the SAM header in the BAM file;
@@ -91,5 +92,30 @@ unmappedReads(); all read related.
 In a way the BamReader class is one of the more complex ones as it supports
 multi-threading, multiple policies and multiple ways of accessing data
 (seekable with index, sequential, compressed, uncompressed etc.). Much of this
-complexity is handled by the underlying classes.
+complexity is handled by the underlying classes. The SamReader is shorter (in
+lines of code) and perhaps better to study first.
 
+# BioD/bio/sam/reader.d
+
+To parse files sambamba uses the ragel lexical parser which generates
+remarkably efficient parser code in many languages, including D. Not
+only does ragel give us speed, it also includes syntactical checking and
+error messages. Quite a large step from ad hoc hand-written textual 
+parsers so common in bioinformatics. Have a look at Ragel also when you 
+write parsers for other programming languages. For the SAM parser
+look in BioD/src_ragel/sam_alignment.rl, which is 500 lines of Ragel
+mixed with D statements that are used to generate the parser.
+
+With sambamba Ragel is also used for parsing command line arguments and the
+filtering language which includes awesome support for regular expressions(!)
+In all, the combination of D and Ragel makes sambamba a powerful and
+maintainable software product which can be built up on.
+
+# view.d
+
+The next one to study is the view routine which parses SAM/BAM and 
+outputs the contents in a human readable form. Again the BamReader/SamReader
+is used. 
+
+The first step is to read the unittests in BioD/src_ragel/sam_alignment.rl.
+These show how a SAM record is unpacked.
