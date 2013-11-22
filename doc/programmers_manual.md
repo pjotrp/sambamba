@@ -57,6 +57,29 @@ allows you to do that in addition to using the (standard) way of the garbage
 collector. Another point of interest it the compression of data, such as with
 SingleEndBasicInfo wich counts 8 bytes.
 
+The function readPairsAndFragments() walks all reads using the thread pool(!)
+and returns results, one at a time, in the variable pf and look at
+the read positions. The function computeFivePrimeCoord() displays some
+D functional programming, e.g.
+
+  auto clipped = reduce!q{ a + b }(0, ops.map!q{ a.length });
+
+First 'auto' can autodetect the type - which is an integer here (derived from
+read.length).  Map and reduce are template functons which take anonymous
+functions containing 'a+b' and 'a.length' respectively. This one liner walks
+the reads, returns the length of each and calculates the total length. The
+final line
+  
+        return read.position + read.basesCovered() + clipped;
+
+returns the 5 prime position calculated from the read position.
+
+All reads positions are stored in RAM. Next we sort them using the fast
+multi-threaded (in-place) 'unstableSort' a mixed algorithm of quick sort and
+heap sort algorithms. From the sorted data we can pull the matching 
+read positions and mark/remove the duplicate reads.
+
+
 # BioD/bio/bam/reader.d
 
 Interesting methods are header() which returns the SAM header in the BAM file;
@@ -66,7 +89,7 @@ reads() and readsWithProgress() fetch reads; getReadAt(); getReadsBetween();
 unmappedReads(); all read related.
 
 In a way the BamReader class is one of the more complex ones as it supports
-multi-threading, multiple policies and ways of accessing data (seekable with
-index, sequential, compressed, uncompressed etc.). Much of this
+multi-threading, multiple policies and multiple ways of accessing data
+(seekable with index, sequential, compressed, uncompressed etc.). Much of this
 complexity is handled by the underlying classes.
 

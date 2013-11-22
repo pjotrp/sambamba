@@ -769,8 +769,8 @@ VirtualOffset[] collectDuplicates(MallocArray!PairedEndsInfo _pe,
                                   MarkDuplicatesConfig cfg)
 {
     // yeah, that's dirty, but allows to minimize memory usage
-    auto pvo = cast(VirtualOffset*)cast(void*)_pe.data.ptr;
-    auto svo = cast(VirtualOffset*)cast(void*)_se.data.ptr;
+    auto pvo = cast(VirtualOffset*)cast(void*)_pe.data.ptr; // paired end
+    auto svo = cast(VirtualOffset*)cast(void*)_se.data.ptr; // single end
     size_t n_vo_pe, n_vo_se; // how much VOs we store in each array
 
     auto pe = _pe.data;
@@ -780,6 +780,7 @@ VirtualOffset[] collectDuplicates(MallocArray!PairedEndsInfo _pe,
     size_t pe_total_mem = pe.length * PairedEndsInfo.sizeof;
     size_t se_total_mem = se.length * SingleEndInfo.sizeof;
 
+    // callback functions for every duplicate
     auto pe_callback = cfg.pe_callback;
     auto se_callback = cfg.se_callback;
 
