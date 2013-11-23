@@ -136,3 +136,9 @@ output in chunks in parallel and outputs a set of chunks. To write to output it
 locks the file. Impressively in all the sambamba and BioD fine grained parallel
 code, locking is called only 5 times!
 
+# slice.d
+
+Slicing is one of the simplest manipulations, even if deciding what belongs in
+a slice may be a bit hairy. First fetchUnmapped() rewrites all unmapped reads
+to a BAM file. Likewise fetchRegion() a slice will write out all reads in a
+region.
