@@ -18,6 +18,7 @@ it is delivered to you in chunks, rather than reading all the data
 in RAM. D helps to abstract away most of the plumbing. Some typical
 approach may look like:
 
+```D
         import std.functional, std.stdio, bio.bam.reader;
         void progress(lazy float p) {
             static uint n;
@@ -27,11 +28,12 @@ approach may look like:
         foreach (read; bam.readsWithProgress(toDelegate(&progress))) {
             ...
         }
+```
 
 where the foreach loop is executed in parallel and progress() is passed
 in as a lazy function. The progress function is made lazy so the user
 can control the amount of times progress is calculated, which may be
-expensive.
+expensive. More information on D thread pooling can be found [here](http://dlang.org/phobos/std_parallelism.html).
 
 # main.d
 
@@ -64,7 +66,9 @@ and returns results, one at a time, in the variable pf and look at
 the read positions. The function computeFivePrimeCoord() displays some
 D functional programming, e.g.
 
+```D
   auto clipped = reduce!q{ a + b }(0, ops.map!q{ a.length });
+```
 
 First 'auto' can autodetect the type - which is an integer here (derived from
 read.length).  Map and reduce are template functons which take anonymous
@@ -72,7 +76,9 @@ functions containing 'a+b' and 'a.length' respectively. This one liner walks
 the reads, returns the length of each and calculates the total length. The
 final line
   
+```D
         return read.position + read.basesCovered() + clipped;
+```
 
 returns the 5 prime position calculated from the read position.
 
